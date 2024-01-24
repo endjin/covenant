@@ -32,6 +32,8 @@ internal sealed class PyProjectToolPoetry
 
     public string? License { get; set; }
 
+    public string? Readme { get; set; }
+
     public List<string>? Authors { get; set; }
 
     public Dictionary<string, string>? Dependencies { get; set; }

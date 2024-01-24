@@ -40,6 +40,7 @@ public static class Program
         services.AddSingleton<AnalysisService>();
         services.AddSingleton<Analyzer, DotnetAnalyzer>();
         services.AddSingleton<Analyzer, NpmAnalyzer>();
+        services.AddSingleton<Analyzer, PoetryAnalyzer>();
 
         services.AddSingleton<CovenantConfigurationReader>();
         services.AddSingleton<ComplianceChecker>();

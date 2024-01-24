@@ -10,6 +10,7 @@ global using System.Linq;
 global using Covenant.Analysis;
 global using Covenant.Analysis.Dotnet;
 global using Covenant.Analysis.Npm;
+global using Covenant.Analysis.Poetry;
 global using Covenant.Compliance;
 global using Covenant.Core;
 global using Covenant.Core.Model;

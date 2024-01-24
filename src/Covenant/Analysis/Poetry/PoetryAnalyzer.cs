@@ -1,13 +1,21 @@
 namespace Covenant.Analysis.Poetry;
 
+using System.IO;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+
 internal class PoetryAnalyzer : Analyzer
 {
     private const string NoDevDependenciesFlag = "--no-poetry-dev-dependencies";
     private const string NoTestDependenciesFlag = "--no-poetry-test-dependencies";
     private const string DisablePoetry = "--disable-poetry";
+    private const string VirtualEnvironmentPath = "--virtual-environment-path";
 
     private readonly PoetryAssetReader _assetReader;
+    private readonly IEnvironment _environment;
     private bool _enabled = true;
+    private DirectoryPath _virtualEnvironmentPath;
 
     public override bool Enabled => _enabled;
     public override string[] Patterns { get; } = new[] { "**/pyproject.toml" };
@@ -15,6 +23,7 @@ internal class PoetryAnalyzer : Analyzer
     public PoetryAnalyzer(IFileSystem fileSystem, IEnvironment environment)
     {
         _assetReader = new PoetryAssetReader(fileSystem, environment);
+        _environment = environment;
     }
 
     public override void AfterAnalysis(AnalysisSettings settings)
@@ -54,34 +63,59 @@ internal class PoetryAnalyzer : Analyzer
         {
             foreach (var package in lockFile.Packages)
             {
-                // var packageFilePath = lockPath.GetDirectory().Combine(packagePath).CombineWithFilePath("package.json");
-                // var packageAssets = _assetReader.ReadAssetFile(packageFilePath);
-                // if (packageAssets == null)
-                // {
-                //     if (package.Optional == null || !package.Optional.Value)
-                //     {
-                //         context.AddError($"Could not read package.json for [yellow]{packagePath}[/]");
-                //     }
-                //     else
-                //     {
-                //         optionalPackages.Add(packagePath.Replace("node_modules/", string.Empty));
-                //     }
+                var sitePackagesPath = string.Empty;
+                string directoryNameToFind = "site-packages";
+                List<string> sitePackageDirs = Directory.EnumerateDirectories(_virtualEnvironmentPath.FullPath, directoryNameToFind, SearchOption.AllDirectories).ToList();
+                if (sitePackageDirs.Count > 1)
+                {
+                    context.AddError($"Found multiple 'site-packages', but no version was specified");
+                    return;
+                }
+                else
+                {
+                    sitePackagesPath = sitePackageDirs.First();
+                }
 
-                //     continue;
-                // }
+                string? license = null;
+                var packageMetadataPath = System.IO.Path.Join(sitePackagesPath, $"{package.Name}-{package.Version}.dist-info", "metadata.json");
+                if (!System.IO.File.Exists(packageMetadataPath))
+                {
+                    // TODO: Add fallback to use regex against the METADATA file
+                    context.AddWarning($"Could not find metadata.json for package {package.Name}");
+                }
+                else
+                {
+                    var packageMetadataReader = new System.IO.StreamReader(packageMetadataPath);
+                    var metadata = JsonSerializer.Deserialize<Dictionary<string, object>>(packageMetadataReader.ReadToEnd());
+                    if (metadata == null)
+                    {
+                        context.AddWarning($"Could not read metadata.json for package {package.Name}");
+                    }
+                    else
+                    {
+                        license = metadata["license"].ToString();
+                    }
+                }
 
-                // TODO:
-                //  - The lock file doesn't include license info, or a link to the source of the package
-                //  - We have hash info for multiple files (e.g. wheel, source, architecture-specific versions etc.)
+                // NOTE: We might be interested in dealing with the 'extras' dependencies differently here? (e.g. as per NPM OptionalDependencies)
+
+                // Since packages can have a varying number of files and file types, the SBOM will use a hash calculated from the combination
+                // of all the indivdual file hashes associated with the package.
+                var hash = string.Empty;
+                if (package.Files != null && package.Files.All(f => f.Hash != null))
+                {
+                    var combinedHash = package.Files.Select(f => f.Hash).Aggregate((a, b) => a + b);
+                    var hashBytes = Encoding.UTF8.GetBytes(combinedHash);
+                    using var sha256 = SHA256.Create();
+                    var hashalg = sha256.ComputeHash(hashBytes);
+                    hash = $"sha256:{Convert.ToHexString(hashalg)}".ToLower();
+                }
+
                 context
                     .AddComponent(
                         new PoetryComponent(package.Name!, package.Version!, BomComponentKind.Library))
-                    .SetHash(PoetryHashParser.Parse(package.Files.First(f => f.File.EndsWith(".whl")).Hash))
-                    .SetLicense(new BomLicense
-                    {
-                        Id = "Unknown",
-                        Name = "Unknown",
-                    });
+                    .SetHash(PoetryHashParser.Parse(hash))
+                    .SetLicense(PoetryLicenseParser.Parse(license));
             }
         }
 
@@ -91,55 +125,29 @@ internal class PoetryAnalyzer : Analyzer
             return;
         }
 
-        // Add dependencies to the main application
+        // Add dependencies to the main project
         if (assetFile.Tool.Poetry.Dependencies != null)
         {
             AddDependencies(context, root, assetFile.Tool.Poetry.Dependencies, optionalPackages);
         }
 
-        // Add dev dependencies to the main application
+        // Add dev dependencies to the main project
         if (assetFile.Tool.Poetry.Groups.Dev != null)
         {
-            // No opt-out?
             if (!context.Cli.GetOption<bool>(NoDevDependenciesFlag))
             {
                 AddDependencies(context, root, assetFile.Tool.Poetry.Groups.Dev, optionalPackages);
             }
         }
 
-        // Add test dependencies to the main application
+        // Add test dependencies to the main project
         if (assetFile.Tool.Poetry.Groups.Test != null)
         {
-            // No opt-out?
             if (!context.Cli.GetOption<bool>(NoTestDependenciesFlag))
             {
                 AddDependencies(context, root, assetFile.Tool.Poetry.Groups.Test, optionalPackages);
             }
         }
-
-        // Add dependencies of dependencies
-        // if (lockFile.Dependencies != null)
-        // {
-        //     foreach (var (packageName, package) in lockFile.Dependencies)
-        //     {
-        //         // Find the package
-        //         var bomPackage = context.Graph.FindByBomRef(NpmComponent.GetBomRef(packageName, package.Version!, BomComponentKind.Library));
-        //         if (bomPackage == null)
-        //         {
-        //             if (!optionalPackages.Contains(packageName))
-        //             {
-        //                 context.AddWarning($"Could not find NPM package [yellow]{packageName}[/]");
-        //             }
-
-        //             continue;
-        //         }
-
-        //         if (package.Requires != null)
-        //         {
-        //             AddDependencies(context, bomPackage, package.Requires, optionalPackages);
-        //         }
-        //     }
-        // }
     }
 
     public override void BeforeAnalysis(AnalysisSettings settings)
@@ -148,6 +156,8 @@ internal class PoetryAnalyzer : Analyzer
         {
             _enabled = false;
         }
+
+        _virtualEnvironmentPath = (new DirectoryPath(settings.Cli.GetOption<string>(VirtualEnvironmentPath))).MakeAbsolute(_environment);
     }
 
     public override bool CanHandle(AnalysisContext context, FilePath path)
@@ -161,11 +171,12 @@ internal class PoetryAnalyzer : Analyzer
         cli.AddOption<bool>(NoDevDependenciesFlag, "Excludes dev dependencies for Python Poetry projects", false);
         cli.AddOption<bool>(NoTestDependenciesFlag, "Excludes test dependencies for Python Poetry projects", false);
         cli.AddOption<bool>(DisablePoetry, "Disables the Python Poetry analyzer", false);
+        cli.AddOption<string>(VirtualEnvironmentPath, "The path to the Python virtual environment", string.Empty);
     }
 
     public override bool ShouldTraverse(DirectoryPath path)
     {
-        return base.ShouldTraverse(path);
+        return !path.FullPath.StartsWith(_virtualEnvironmentPath.FullPath);
     }
 
 
