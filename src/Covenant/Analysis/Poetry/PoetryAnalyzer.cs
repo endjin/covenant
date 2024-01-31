@@ -77,23 +77,27 @@ internal class PoetryAnalyzer : Analyzer
                 }
 
                 string? license = null;
-                var packageMetadataPath = System.IO.Path.Join(sitePackagesPath, $"{package.Name}-{package.Version}.dist-info", "metadata.json");
-                if (!System.IO.File.Exists(packageMetadataPath))
+                var packageMetadataPath = Path.Join(sitePackagesPath, $"{package.Name}-{package.Version}.dist-info", "metadata.json");
+                if (!File.Exists(packageMetadataPath))
                 {
-                    // TODO: Add fallback to use regex against the METADATA file
+                    // TODO:
+                    // - Add fallback to use regex against the METADATA file
+                    // - Also some packages have a LICENSE file, whilst others a 'licenses' folder
                     context.AddWarning($"Could not find metadata.json for package {package.Name}");
                 }
                 else
                 {
-                    var packageMetadataReader = new System.IO.StreamReader(packageMetadataPath);
-                    var metadata = JsonSerializer.Deserialize<Dictionary<string, object>>(packageMetadataReader.ReadToEnd());
-                    if (metadata == null)
+                    using (var packageMetadataReader = new StreamReader(packageMetadataPath))
                     {
-                        context.AddWarning($"Could not read metadata.json for package {package.Name}");
-                    }
-                    else
-                    {
-                        license = metadata["license"].ToString();
+                        var metadata = JsonSerializer.Deserialize<Dictionary<string, object>>(packageMetadataReader.ReadToEnd());
+                        if (metadata == null)
+                        {
+                            context.AddWarning($"Could not read metadata.json for package {package.Name}");
+                        }
+                        else
+                        {
+                            license = metadata["license"].ToString();
+                        }
                     }
                 }
 
