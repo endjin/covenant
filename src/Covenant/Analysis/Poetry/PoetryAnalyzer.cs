@@ -3,33 +3,21 @@ namespace Covenant.Analysis.Poetry;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
 
-internal class PoetryAnalyzer : Analyzer
+internal class PoetryAnalyzer(IFileSystem fileSystem, IEnvironment environment) : Analyzer
 {
     private const string NoDevDependenciesFlag = "--no-poetry-dev-dependencies";
     private const string NoTestDependenciesFlag = "--no-poetry-test-dependencies";
     private const string DisablePoetry = "--disable-poetry";
     private const string VirtualEnvironmentPath = "--virtual-environment-path";
 
-    private readonly PoetryAssetReader _assetReader;
-    private readonly IEnvironment _environment;
+    private readonly PoetryAssetReader _assetReader = new PoetryAssetReader(fileSystem, environment);
+    private readonly IEnvironment _environment = environment;
     private bool _enabled = true;
-    private DirectoryPath _virtualEnvironmentPath;
+    private DirectoryPath? _virtualEnvironmentPath;
 
     public override bool Enabled => _enabled;
     public override string[] Patterns { get; } = new[] { "**/pyproject.toml" };
-
-    public PoetryAnalyzer(IFileSystem fileSystem, IEnvironment environment)
-    {
-        _assetReader = new PoetryAssetReader(fileSystem, environment);
-        _environment = environment;
-    }
-
-    public override void AfterAnalysis(AnalysisSettings settings)
-    {
-        base.AfterAnalysis(settings);
-    }
 
     public override void Analyze(AnalysisContext context, FilePath path)
     {
@@ -63,43 +51,25 @@ internal class PoetryAnalyzer : Analyzer
         {
             foreach (var package in lockFile.Packages)
             {
+                if (package.Name is null || package.Version is null)
+                {
+                    continue;
+                }
+
                 var sitePackagesPath = string.Empty;
-                string directoryNameToFind = "site-packages";
-                List<string> sitePackageDirs = Directory.EnumerateDirectories(_virtualEnvironmentPath.FullPath, directoryNameToFind, SearchOption.AllDirectories).ToList();
+                const string DirectoryNameToFind = "site-packages";
+                var sitePackageDirs = Directory.EnumerateDirectories(_virtualEnvironmentPath!.FullPath, DirectoryNameToFind, SearchOption.AllDirectories).ToList();
                 if (sitePackageDirs.Count > 1)
                 {
-                    context.AddError($"Found multiple 'site-packages', but no version was specified");
+                    context.AddError("Found multiple 'site-packages', but no version was specified");
                     return;
                 }
                 else
                 {
-                    sitePackagesPath = sitePackageDirs.First();
+                    sitePackagesPath = sitePackageDirs[0];
                 }
 
-                string? license = null;
-                var packageMetadataPath = Path.Join(sitePackagesPath, $"{package.Name}-{package.Version}.dist-info", "metadata.json");
-                if (!File.Exists(packageMetadataPath))
-                {
-                    // TODO:
-                    // - Add fallback to use regex against the METADATA file
-                    // - Also some packages have a LICENSE file, whilst others a 'licenses' folder
-                    context.AddWarning($"Could not find metadata.json for package {package.Name}");
-                }
-                else
-                {
-                    using (var packageMetadataReader = new StreamReader(packageMetadataPath))
-                    {
-                        var metadata = JsonSerializer.Deserialize<Dictionary<string, object>>(packageMetadataReader.ReadToEnd());
-                        if (metadata == null)
-                        {
-                            context.AddWarning($"Could not read metadata.json for package {package.Name}");
-                        }
-                        else
-                        {
-                            license = metadata["license"].ToString();
-                        }
-                    }
-                }
+                var license = PoetryLicenseParser.Parse(sitePackagesPath, package, context);
 
                 // NOTE: We might be interested in dealing with the 'extras' dependencies differently here? (e.g. as per NPM OptionalDependencies)
 
@@ -117,9 +87,9 @@ internal class PoetryAnalyzer : Analyzer
 
                 context
                     .AddComponent(
-                        new PoetryComponent(package.Name!, package.Version!, BomComponentKind.Library))
+                        new PoetryComponent(package.Name, package.Version, BomComponentKind.Library))
                     .SetHash(PoetryHashParser.Parse(hash))
-                    .SetLicense(PoetryLicenseParser.Parse(license));
+                    .SetLicense(license);
             }
         }
 
