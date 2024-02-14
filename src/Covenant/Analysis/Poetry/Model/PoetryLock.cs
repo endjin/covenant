@@ -1,6 +1,7 @@
 using System.Runtime.Serialization;
 
 namespace Covenant.Analysis.Poetry;
+
 internal sealed class PoetryLock
 {
     [DataMember(Name = "package")]

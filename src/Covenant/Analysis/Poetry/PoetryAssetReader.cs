@@ -1,3 +1,5 @@
+using Tomlyn;
+
 namespace Covenant.Analysis.Poetry;
 
 internal sealed class PoetryAssetReader
@@ -41,7 +43,7 @@ internal sealed class PoetryAssetReader
         using (var reader = new StreamReader(stream))
         {
             var toml = reader.ReadToEnd();
-            var poetryLockfile = Tomlyn.Toml.ToModel<PoetryLock>(toml);
+            var poetryLockfile = Tomlyn.Toml.ToModel<PoetryLock>(toml, null, new TomlModelOptions { IgnoreMissingProperties = true });
 
             return poetryLockfile;
         }

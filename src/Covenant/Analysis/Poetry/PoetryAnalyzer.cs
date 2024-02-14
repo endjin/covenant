@@ -3,6 +3,7 @@ namespace Covenant.Analysis.Poetry;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
+using Tomlyn.Model;
 
 internal class PoetryAnalyzer(IFileSystem fileSystem, IEnvironment environment) : Analyzer
 {
@@ -102,24 +103,24 @@ internal class PoetryAnalyzer(IFileSystem fileSystem, IEnvironment environment) 
         // Add dependencies to the main project
         if (assetFile.Tool.Poetry.Dependencies != null)
         {
-            AddDependencies(context, root, assetFile.Tool.Poetry.Dependencies, optionalPackages);
+            AddDependencies(context, root, lockFile, assetFile.Tool.Poetry.Dependencies, optionalPackages);
         }
 
         // Add dev dependencies to the main project
-        if (assetFile.Tool.Poetry.Groups.Dev != null)
+        if (assetFile.Tool.Poetry.Groups?.Dev != null)
         {
             if (!context.Cli.GetOption<bool>(NoDevDependenciesFlag))
             {
-                AddDependencies(context, root, assetFile.Tool.Poetry.Groups.Dev, optionalPackages);
+                AddDependencies(context, root, lockFile, assetFile.Tool.Poetry.Groups.Dev.Dependencies, optionalPackages);
             }
         }
 
         // Add test dependencies to the main project
-        if (assetFile.Tool.Poetry.Groups.Test != null)
+        if (assetFile.Tool.Poetry.Groups?.Test != null)
         {
             if (!context.Cli.GetOption<bool>(NoTestDependenciesFlag))
             {
-                AddDependencies(context, root, assetFile.Tool.Poetry.Groups.Test, optionalPackages);
+                AddDependencies(context, root, lockFile, assetFile.Tool.Poetry.Groups.Test.Dependencies, optionalPackages);
             }
         }
     }
@@ -131,7 +132,7 @@ internal class PoetryAnalyzer(IFileSystem fileSystem, IEnvironment environment) 
             _enabled = false;
         }
 
-        _virtualEnvironmentPath = (new DirectoryPath(settings.Cli.GetOption<string>(VirtualEnvironmentPath))).MakeAbsolute(_environment);
+        _virtualEnvironmentPath = new DirectoryPath(settings.Cli.GetOption<string>(VirtualEnvironmentPath)).MakeAbsolute(_environment);
     }
 
     public override bool CanHandle(AnalysisContext context, FilePath path)
@@ -153,38 +154,93 @@ internal class PoetryAnalyzer(IFileSystem fileSystem, IEnvironment environment) 
         return !path.FullPath.StartsWith(_virtualEnvironmentPath.FullPath);
     }
 
-
-    private static void AddDependencies(AnalysisContext context, BomComponent root, PyProjectToolPoetryGroupDependencies? dependencies, IReadOnlySet<string> optionalPackages)
+    private static void AddDependencies(AnalysisContext context, BomComponent parent, PoetryLock poetryLock, Dictionary<string, string>? dependencies, IReadOnlySet<string> optionalPackages)
     {
-        // TODO
+        if (dependencies != null)
+        {
+            foreach (var (packageName, versionRange) in dependencies)
+            {
+                // Find the component
+                var bomComponent = context.Graph.FindPoetryComponent(packageName, new PoetryVersionRange(versionRange), out var foundMatch);
+                if (bomComponent == null)
+                {
+                    //if (!optionalPackages.Contains(packageName))
+                    //{
+                    //    context.AddWarning($"Could not find Poetry package [yellow]{packageName}[/]");
+                    //}
+
+                    context.AddWarning($"Could not find Poetry package [yellow]{packageName}[/]");
+
+                    continue;
+                }
+
+                var childPackage = poetryLock.Packages!.Find(p => p.Name == packageName && p.Version == bomComponent.Version);
+
+                AddDependencies(context, bomComponent, poetryLock, childPackage?.Dependencies, optionalPackages);
+                context.Connect(parent, bomComponent);
+            }
+        }
     }
-    
-    private static void AddDependencies(AnalysisContext context, BomComponent root, Dictionary<string, string>? dependencies, IReadOnlySet<string> optionalPackages)
+
+    private static void AddDependencies(AnalysisContext context, BomComponent parent, PoetryLock poetryLock, Dictionary<string, object>? dependencies, IReadOnlySet<string> optionalPackages)
     {
-        // if (dependencies != null)
-        // {
-        //     foreach (var (dependencyName, dependencyRange) in dependencies)
-        //     {
-        //         var range = new NpmVersionRange(dependencyRange);
+        if (dependencies != null)
+        {
+            foreach (var (packageName, packageVersion) in dependencies)
+            {
+                string? versionRange = null;
 
-        //         var bomDependency = context.Graph.FindNpmComponent(dependencyName, range, out var foundMatch);
-        //         if (bomDependency != null)
-        //         {
-        //             if (!foundMatch)
-        //             {
-        //                 context.AddWarning($"Could not find exact NPM dependency match [yellow]{dependencyName}[/] ({dependencyRange})");
-        //             }
+                // Package version could either be a string (e.g. ">=1.0.0") or a dictionary (e.g. { "version": ">=1.0.0" })
+                if (packageVersion is Dictionary<string, string> versionDict)
+                {
+                    if (!versionDict.TryGetValue("version", out versionRange))
+                    {
+                        context.AddWarning($"Could not find version for Poetry package [yellow]{packageName}[/]");
+                        continue;
+                    }
+                }
+                else if (packageVersion is TomlTable table)
+                {
+                    if (table.ContainsKey("version"))
+                    {
+                        versionRange = table["version"].ToString();
+                    }
+                    else
+                    {
+                        context.AddWarning($"Could not find version for Poetry package [yellow]{packageName}[/]");
+                        continue;
+                    }
+                }
+                else if (packageVersion is string)
+                {
+                    versionRange = packageVersion.ToString();
+                }
 
-        //             context.Connect(root, bomDependency);
-        //         }
-        //         else
-        //         {
-        //             if (optionalPackages?.Contains(dependencyName) == false)
-        //             {
-        //                 context.AddWarning($"Could not find NPM dependency [yellow]{dependencyName}[/] ({dependencyRange})");
-        //             }
-        //         }
-        //     }
-        // }
+                if (versionRange is null)
+                {
+                    context.AddWarning($"Could not find version for Poetry package [yellow]{packageName}[/]");
+                    continue;
+                }
+
+                // Find the component
+                var bomComponent = context.Graph.FindPoetryComponent(packageName, new PoetryVersionRange(versionRange), out var foundMatch);
+                if (bomComponent == null)
+                {
+                    //if (!optionalPackages.Contains(packageName))
+                    //{
+                    //    context.AddWarning($"Could not find Poetry package [yellow]{packageName}[/]");
+                    //}
+
+                    context.AddWarning($"Could not find Poetry package [yellow]{packageName}[/]");
+
+                    continue;
+                }
+
+                var childPackage = poetryLock.Packages!.Find(p => p.Name == packageName && p.Version == bomComponent.Version);
+
+                AddDependencies(context, bomComponent, poetryLock, childPackage?.Dependencies, optionalPackages);
+                context.Connect(parent, bomComponent);
+            }
+        }
     }
 }
