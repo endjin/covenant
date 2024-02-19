@@ -7,8 +7,7 @@ using Tomlyn.Model;
 
 internal class PoetryAnalyzer(IFileSystem fileSystem, IEnvironment environment) : Analyzer
 {
-    private const string NoDevDependenciesFlag = "--no-poetry-dev-dependencies";
-    private const string NoTestDependenciesFlag = "--no-poetry-test-dependencies";
+    private const string ExcludeGroups = "--exclude-poetry-groups";
     private const string DisablePoetry = "--disable-poetry";
     private const string VirtualEnvironmentPath = "--virtual-environment-path";
 
@@ -104,21 +103,19 @@ internal class PoetryAnalyzer(IFileSystem fileSystem, IEnvironment environment) 
             AddDependencies(context, root, lockFile, assetFile.Tool.Poetry.Dependencies);
         }
 
-        // Add dev dependencies to the main project
-        if (assetFile.Tool.Poetry.Groups?.Dev != null)
+        if (assetFile.Tool.Poetry.Groups != null)
         {
-            if (!context.Cli.GetOption<bool>(NoDevDependenciesFlag))
+            foreach (var (groupName, group) in assetFile.Tool.Poetry.Groups)
             {
-                AddDependencies(context, root, lockFile, assetFile.Tool.Poetry.Groups.Dev.Dependencies);
-            }
-        }
+                if (context.Cli.GetOption<string[]>(ExcludeGroups)!.Contains(groupName))
+                {
+                    continue;
+                }
 
-        // Add test dependencies to the main project
-        if (assetFile.Tool.Poetry.Groups?.Test != null)
-        {
-            if (!context.Cli.GetOption<bool>(NoTestDependenciesFlag))
-            {
-                AddDependencies(context, root, lockFile, assetFile.Tool.Poetry.Groups.Test.Dependencies);
+                if (group.Dependencies != null)
+                {
+                    AddDependencies(context, root, lockFile, group.Dependencies);
+                }
             }
         }
     }
@@ -141,8 +138,7 @@ internal class PoetryAnalyzer(IFileSystem fileSystem, IEnvironment environment) 
 
     public override void Initialize(ICommandLineAugmentor cli)
     {
-        cli.AddOption<bool>(NoDevDependenciesFlag, "Excludes dev dependencies for Python Poetry projects", false);
-        cli.AddOption<bool>(NoTestDependenciesFlag, "Excludes test dependencies for Python Poetry projects", false);
+        cli.AddOption<string[]>(ExcludeGroups, "Excludes specified dependency groups for Python Poetry projects", Array.Empty<string>());
         cli.AddOption<bool>(DisablePoetry, "Disables the Python Poetry analyzer", false);
         cli.AddOption<string>(VirtualEnvironmentPath, "The path to the Python virtual environment", string.Empty);
     }

@@ -39,13 +39,7 @@ internal sealed class PyProjectToolPoetry
     public Dictionary<string, string>? Dependencies { get; set; }
 
     [DataMember(Name = "group")]
-    public PyProjectToolPoetryGroups? Groups { get; set; }
-}
-
-internal sealed class PyProjectToolPoetryGroups
-{
-    public PyProjectToolPoetryGroupDependencies? Dev { get; set; }
-    public PyProjectToolPoetryGroupDependencies? Test { get; set; }
+    public Dictionary<string, PyProjectToolPoetryGroupDependencies>? Groups { get; set; }
 }
 
 internal sealed class PyProjectToolPoetryGroupDependencies
