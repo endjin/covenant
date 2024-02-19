@@ -18,7 +18,7 @@ internal class PoetryAnalyzer(IFileSystem fileSystem, IEnvironment environment) 
     private DirectoryPath? _virtualEnvironmentPath;
 
     public override bool Enabled => _enabled;
-    public override string[] Patterns { get; } = new[] { "**/pyproject.toml" };
+    public override string[] Patterns { get; } = ["**/pyproject.toml"];
 
     public override void Analyze(AnalysisContext context, FilePath path)
     {
@@ -44,8 +44,6 @@ internal class PoetryAnalyzer(IFileSystem fileSystem, IEnvironment environment) 
             context.AddError("Could not read poetry.lock");
             return;
         }
-
-        var optionalPackages = new HashSet<string>();
 
         // Add all packages
         if (lockFile.Packages != null)
@@ -103,7 +101,7 @@ internal class PoetryAnalyzer(IFileSystem fileSystem, IEnvironment environment) 
         // Add dependencies to the main project
         if (assetFile.Tool.Poetry.Dependencies != null)
         {
-            AddDependencies(context, root, lockFile, assetFile.Tool.Poetry.Dependencies, optionalPackages);
+            AddDependencies(context, root, lockFile, assetFile.Tool.Poetry.Dependencies);
         }
 
         // Add dev dependencies to the main project
@@ -111,7 +109,7 @@ internal class PoetryAnalyzer(IFileSystem fileSystem, IEnvironment environment) 
         {
             if (!context.Cli.GetOption<bool>(NoDevDependenciesFlag))
             {
-                AddDependencies(context, root, lockFile, assetFile.Tool.Poetry.Groups.Dev.Dependencies, optionalPackages);
+                AddDependencies(context, root, lockFile, assetFile.Tool.Poetry.Groups.Dev.Dependencies);
             }
         }
 
@@ -120,7 +118,7 @@ internal class PoetryAnalyzer(IFileSystem fileSystem, IEnvironment environment) 
         {
             if (!context.Cli.GetOption<bool>(NoTestDependenciesFlag))
             {
-                AddDependencies(context, root, lockFile, assetFile.Tool.Poetry.Groups.Test.Dependencies, optionalPackages);
+                AddDependencies(context, root, lockFile, assetFile.Tool.Poetry.Groups.Test.Dependencies);
             }
         }
     }
@@ -154,7 +152,7 @@ internal class PoetryAnalyzer(IFileSystem fileSystem, IEnvironment environment) 
         return !path.FullPath.StartsWith(_virtualEnvironmentPath.FullPath);
     }
 
-    private static void AddDependencies(AnalysisContext context, BomComponent parent, PoetryLock poetryLock, Dictionary<string, string>? dependencies, IReadOnlySet<string> optionalPackages)
+    private static void AddDependencies(AnalysisContext context, BomComponent parent, PoetryLock poetryLock, Dictionary<string, string>? dependencies)
     {
         if (dependencies != null)
         {
@@ -164,11 +162,6 @@ internal class PoetryAnalyzer(IFileSystem fileSystem, IEnvironment environment) 
                 var bomComponent = context.Graph.FindPoetryComponent(packageName, new PoetryVersionRange(versionRange), out var foundMatch);
                 if (bomComponent == null)
                 {
-                    //if (!optionalPackages.Contains(packageName))
-                    //{
-                    //    context.AddWarning($"Could not find Poetry package [yellow]{packageName}[/]");
-                    //}
-
                     context.AddWarning($"Could not find Poetry package [yellow]{packageName}[/]");
 
                     continue;
@@ -176,13 +169,13 @@ internal class PoetryAnalyzer(IFileSystem fileSystem, IEnvironment environment) 
 
                 var childPackage = poetryLock.Packages!.Find(p => p.Name == packageName && p.Version == bomComponent.Version);
 
-                AddDependencies(context, bomComponent, poetryLock, childPackage?.Dependencies, optionalPackages);
+                AddDependencies(context, bomComponent, poetryLock, childPackage?.Dependencies);
                 context.Connect(parent, bomComponent);
             }
         }
     }
 
-    private static void AddDependencies(AnalysisContext context, BomComponent parent, PoetryLock poetryLock, Dictionary<string, object>? dependencies, IReadOnlySet<string> optionalPackages)
+    private static void AddDependencies(AnalysisContext context, BomComponent parent, PoetryLock poetryLock, Dictionary<string, object>? dependencies)
     {
         if (dependencies != null)
         {
@@ -226,11 +219,6 @@ internal class PoetryAnalyzer(IFileSystem fileSystem, IEnvironment environment) 
                 var bomComponent = context.Graph.FindPoetryComponent(packageName, new PoetryVersionRange(versionRange), out var foundMatch);
                 if (bomComponent == null)
                 {
-                    //if (!optionalPackages.Contains(packageName))
-                    //{
-                    //    context.AddWarning($"Could not find Poetry package [yellow]{packageName}[/]");
-                    //}
-
                     context.AddWarning($"Could not find Poetry package [yellow]{packageName}[/]");
 
                     continue;
@@ -238,7 +226,7 @@ internal class PoetryAnalyzer(IFileSystem fileSystem, IEnvironment environment) 
 
                 var childPackage = poetryLock.Packages!.Find(p => p.Name == packageName && p.Version == bomComponent.Version);
 
-                AddDependencies(context, bomComponent, poetryLock, childPackage?.Dependencies, optionalPackages);
+                AddDependencies(context, bomComponent, poetryLock, childPackage?.Dependencies);
                 context.Connect(parent, bomComponent);
             }
         }
