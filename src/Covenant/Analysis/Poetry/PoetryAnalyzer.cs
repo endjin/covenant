@@ -148,29 +148,6 @@ internal class PoetryAnalyzer(IFileSystem fileSystem, IEnvironment environment) 
         return !path.FullPath.StartsWith(_virtualEnvironmentPath.FullPath);
     }
 
-    private static void AddDependencies(AnalysisContext context, BomComponent parent, PoetryLock poetryLock, Dictionary<string, string>? dependencies)
-    {
-        if (dependencies != null)
-        {
-            foreach (var (packageName, versionRange) in dependencies)
-            {
-                // Find the component
-                var bomComponent = context.Graph.FindPoetryComponent(packageName, new PoetryVersionRange(versionRange), out var foundMatch);
-                if (bomComponent == null)
-                {
-                    context.AddWarning($"Could not find Poetry package [yellow]{packageName}[/]");
-
-                    continue;
-                }
-
-                var childPackage = poetryLock.Packages!.Find(p => p.Name == packageName && p.Version == bomComponent.Version);
-
-                AddDependencies(context, bomComponent, poetryLock, childPackage?.Dependencies);
-                context.Connect(parent, bomComponent);
-            }
-        }
-    }
-
     private static void AddDependencies(AnalysisContext context, BomComponent parent, PoetryLock poetryLock, Dictionary<string, object>? dependencies)
     {
         if (dependencies != null)

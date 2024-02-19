@@ -25,7 +25,7 @@ internal sealed class PoetryAssetReader
         using (var reader = new StreamReader(stream))
         {
             var toml = reader.ReadToEnd();
-            var pyProject = Tomlyn.Toml.ToModel<PyProjectToml>(toml);
+            var pyProject = Tomlyn.Toml.ToModel<PyProjectToml>(toml, null, new TomlModelOptions { IgnoreMissingProperties = true });
 
             return pyProject;
         }
