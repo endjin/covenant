@@ -1,3 +1,6 @@
+using CycloneDX.Models;
+using Bom = Covenant.Core.Model.Bom;
+
 namespace Covenant.CycloneDx;
 
 internal static class CycloneDxConverter
@@ -22,13 +25,16 @@ internal static class CycloneDxConverter
             Metadata = new CycloneMetadata
             {
                 Component = ConvertComponent(root),
-                Tools = new List<CycloneTool>
+                Tools = new ToolChoices
                 {
-                    new CycloneTool
+                    Components = new List<Component>
                     {
-                        Name = "Covenant",
-                        Vendor = bom.ToolVendor,
-                        Version = bom.ToolVersion,
+                        new()
+                        {
+                            Name = "Covenant",
+                            Publisher = bom.ToolVendor,
+                            Version = bom.ToolVersion,
+                        },
                     },
                 },
                 Properties = new List<CycloneProperty>
